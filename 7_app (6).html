@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>泰國鬆弛之旅 ✈️</title>
+    
+    <!-- APP 化專用設定：隱藏網址列、設定桌面圖示 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="泰國七日遊">
+    <meta name="theme-color" content="#FDFBF7">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"> <!-- 桌面圖示 -->
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cream: '#FDFBF7', oatmeal: '#F4EFE6', coffee: '#5C544D',
+                        latte: '#8C8273', matcha: '#B6C6B0', peach: '#F4B9B8', borderCream: '#D2C8B8'
+                    },
+                    fontFamily: { sans: ['"M PLUS Rounded 1c"', 'Nunito', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #FDFBF7; color: #5C544D; font-family: 'M PLUS Rounded 1c', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .ins-card { background: #FFFFFF; border: 2px dashed #D2C8B8; border-radius: 20px; box-shadow: 4px 4px 0px #E5D5C5; transition: transform 0.2s ease; margin-bottom: 24px; }
+        .ins-btn { background: #F4EFE6; border: 2px solid #5C544D; border-radius: 999px; box-shadow: 2px 2px 0px #5C544D; font-weight: 700; transition: all 0.1s ease; }
+        .ins-btn:active { transform: translate(2px, 2px); box-shadow: 0px 0px 0px #5C544D; }
+        .ins-btn-primary { background: #B6C6B0; color: #FFFFFF; border-color: #5C544D; }
+        
+        .skipped-item { opacity: 0.4; filter: grayscale(100%); transition: all 0.3s ease; background-color: #f9f9f9; }
+        .nav-item.active { color: #5C544D; background: #F4EFE6; border-radius: 16px; font-weight: bold; }
+        dialog::backdrop { background: rgba(92, 84, 77, 0.6); backdrop-filter: blur(4px); }
+        dialog { background: transparent; border: none; overflow: visible; }
+        .person-checkbox:checked + div { background-color: #B6C6B0; color: white; border-color: #B6C6B0; }
+        .checklist-cb:checked + div { color: #B6C6B0; text-decoration: line-through; }
+        
+        /* 隱藏原生卷軸但可滑動 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, setDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'thailand-trip-smart-v2';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        
+        let app, db, auth;
+        let isConnected = false;
+        let liveExchangeRate = 0.93;
+
+        // 自訂提示框 (取代原有的 alert)
+        window.showToast = (msg) => {
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-20 left-1/2 transform -translate-x-1/2 bg-coffee text-white px-6 py-3 rounded-full shadow-2xl z-[100] font-bold text-sm animate-bounce';
+            toast.innerHTML = `<i class="fa-solid fa-bell text-peach mr-2"></i> ${msg}`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3500);
+        };
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            const authPromise = token ? signInWithCustomToken(auth, token).catch(() => signInAnonymously(auth)) : signInAnonymously(auth);
+            authPromise.then(() => initApp()).catch(e => console.error("Auth failed", e));
+        } else {
+            window.mockMode = true;
+            document.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('sync-status').innerHTML = '<i class="fa-solid fa-cloud-arrow-down text-latte"></i> 離線模式';
+                window.expensesData = []; renderExpenses(); calculateSplit(); fetchLiveRate(); setTimeout(updateTimeline, 500);
+            });
+        }
+
+        let settingsRef, expensesRef;
+
+        function initApp() {
+            if (!auth.currentUser) return;
+            isConnected = true;
+            document.getElementById('sync-status').innerHTML = '<i class="fa-solid fa-cloud text-matcha animate-pulse"></i> 已連線';
+            
+            settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'shared_info');
+            expensesRef = collection(db, 'artifacts', appId, 'public', 'data', 'expenses');
+
+            onSnapshot(settingsRef, (docSnap) => {
+                if (docSnap.exists()) updateSettingsUI(docSnap.data());
+                else setDoc(settingsRef, { flightA: '', flightB: '', hiddenItems: [], checklists: {} });
+            }, (e) => console.error(e));
+
+            onSnapshot(query(expensesRef), (snapshot) => {
+                window.expensesData = [];
+                snapshot.forEach((doc) => window.expensesData.push({ id: doc.id, ...doc.data() }));
+                window.expensesData.sort((a, b) => b.timestamp - a.timestamp);
+                renderExpenses(); calculateSplit();
+            }, (e) => console.error(e));
+            
+            fetchLiveRate();
+        }
+
+        async function fetchLiveRate() {
+            try {
+                const res = await fetch('https://open.er-api.com/v6/latest/THB');
+                const data = await res.json();
+                if(data && data.rates && data.rates.TWD) {
+                    liveExchangeRate = data.rates.TWD;
+                    document.getElementById('live-rate-display').innerHTML = `<i class="fa-solid fa-bolt text-peach"></i> 目前即時連線匯率: 1 THB = <span class="font-bold text-coffee">${liveExchangeRate.toFixed(4)} TWD</span>`;
+                }
+            } catch(e) { console.error('匯率連線失敗', e); }
+        }
+
+        window.calcExchange = (source) => {
+            const thbInput = document.getElementById('calc-thb');
+            const twdInput = document.getElementById('calc-twd');
+            const rate = liveExchangeRate || 0.93;
+            if (source === 'thb') {
+                twdInput.value = thbInput.value ? (parseFloat(thbInput.value) * rate).toFixed(0) : '';
+            } else if (source === 'twd') {
+                thbInput.value = twdInput.value ? (parseFloat(twdInput.value) / rate).toFixed(0) : '';
+            }
+        };
+
+        window.checkFlight = (inputId) => {
+            const flightNo = document.getElementById(inputId).value.trim();
+            if(!flightNo) return showToast("請先輸入航班號碼喔！(例如: JX741)");
+            window.open(`https://www.flightaware.com/live/flight/${flightNo}`, '_blank');
+        };
+
+        window.updateTimeline = () => {
+            document.querySelectorAll('.day-container').forEach(day => {
+                let currentMinutes = timeToMins(day.getAttribute('data-start-time'));
+                if(isNaN(currentMinutes)) return;
+
+                day.querySelectorAll('.itinerary-item').forEach(item => {
+                    const duration = parseInt(item.getAttribute('data-duration') || 0);
+                    const travel = parseInt(item.getAttribute('data-travel') || 0);
+                    const fixedTime = item.getAttribute('data-fixed-time');
+                    const type = item.getAttribute('data-type') || 'stay'; 
+                    const timeDisplay = item.querySelector('.time-display');
+                    const isHidden = item.classList.contains('skipped-item');
+
+                    // 固定時間絕對不移動 (如預約餐廳)
+                    if(fixedTime) currentMinutes = timeToMins(fixedTime);
+
+                    const startStr = minsToTime(currentMinutes);
+
+                    if(isHidden) {
+                        if(timeDisplay) timeDisplay.innerHTML = `<span class="text-latte line-through"><i class="fa-regular fa-clock"></i> 原訂 ${startStr}</span> <span class="text-xs bg-gray-200 px-2 py-1 rounded-md text-gray-500 ml-1 font-bold">自由活動，行程提前</span>`;
+                        // 隱藏時，不累加時間，讓下一個景點直接補上這個空缺的時間！
+                    } else {
+                        currentMinutes += duration;
+                        const endStr = minsToTime(currentMinutes);
+
+                        let timeHTML = '';
+                        if (type === 'checkin') {
+                            timeHTML = `<i class="fa-solid fa-bed text-latte"></i> ${startStr} 辦理入住與休息`;
+                        } else if (type === 'meetup') {
+                            timeHTML = `<i class="fa-solid fa-bell text-peach animate-bounce"></i> <span class="text-peach">${startStr} 大廳集合出發</span>`;
+                        } else if (type === 'travel') {
+                            timeHTML = `<i class="fa-solid fa-car-side text-latte"></i> ${startStr} 上車出發 ➔ ${endStr} 抵達`;
+                        } else if (type === 'fixed') {
+                            timeHTML = `<i class="fa-regular fa-clock text-latte"></i> <span class="text-coffee">${startStr} 預約時段 (請準時)</span>`;
+                        } else {
+                            // 逛街景點的超直觀顯示法
+                            timeHTML = `<i class="fa-regular fa-clock text-latte"></i> <span class="text-coffee">${startStr} 抵達 ➔ 待到 ${endStr}</span>`;
+                            timeHTML += ` <span class="ml-2 px-2 py-1 bg-peach text-white rounded-md text-xs font-bold shadow-sm animate-pulse"><i class="fa-solid fa-flag"></i> ${endStr} 集合出發</span>`;
+                        }
+                        if(timeDisplay) timeDisplay.innerHTML = timeHTML;
+                        currentMinutes += travel; // 加上前往下一站的交通時間
+                    }
+                });
+            });
+        };
+
+        function timeToMins(t) { if(!t) return 0; const [h,m] = t.split(':'); return parseInt(h)*60 + parseInt(m); }
+        function minsToTime(m) { const h = Math.floor(m/60)%24; const mins = m%60; return `${h.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}`; }
+
+        window.toggleOption = (selectEl, optAId, optBId) => {
+            if(selectEl.value === 'A') {
+                document.getElementById(optAId).classList.remove('hidden');
+                document.getElementById(optBId).classList.add('hidden');
+            } else {
+                document.getElementById(optAId).classList.add('hidden');
+                document.getElementById(optBId).classList.remove('hidden');
+            }
+        };
+
+        window.toggleHideItem = async (btnEl) => {
+            const item = btnEl.closest('.itinerary-item');
+            if (!item) return;
+            
+            item.classList.toggle('skipped-item');
+            updateTimeline(); 
+
+            if (!isConnected || !settingsRef) return;
+            try {
+                const currentHiddenItems = Array.from(document.querySelectorAll('.itinerary-item.skipped-item')).map(el => el.id);
+                await setDoc(settingsRef, { hiddenItems: currentHiddenItems }, { merge: true });
+            } catch (e) { console.error("隱藏狀態同步失敗", e); }
+        };
+
+        window.saveSetting = async (key, value) => { if (isConnected) await setDoc(settingsRef, { [key]: value }, { merge: true }); };
+        window.saveChecklist = async (key, checked) => { if (isConnected) await setDoc(settingsRef, { checklists: { [key]: checked } }, { merge: true }); };
+
+        function updateSettingsUI(data) {
+            ['flightA', 'flightB', 'roomGoA', 'roomGoB', 'roomAnaA', 'roomAnaB', 'roomMontienA', 'roomMontienB'].forEach(key => {
+                const el = document.getElementById(key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`));
+                if(el && data[key] !== undefined) el.value = data[key];
+            });
+
+            if(data.checklists) {
+                Object.keys(data.checklists).forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el) el.checked = data.checklists[id];
+                });
+            }
+
+            document.querySelectorAll('.itinerary-item').forEach(el => el.classList.remove('skipped-item'));
+            if(data.hiddenItems) {
+                data.hiddenItems.forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el) el.classList.add('skipped-item');
+                });
+            }
+            updateTimeline();
+        }
+
+        window.openExpenseModal = () => document.getElementById('expense-modal').showModal();
+        window.closeExpenseModal = () => document.getElementById('expense-modal').close();
+
+        window.submitExpense = async () => {
+            const payer = document.getElementById('expense-payer').value;
+            const currency = document.querySelector('input[name="expense-currency"]:checked').value;
+            const amount = parseFloat(document.getElementById('expense-amount').value);
+            const desc = document.getElementById('expense-desc').value;
+            
+            const splitters = [];
+            document.querySelectorAll('.person-checkbox:checked').forEach(cb => splitters.push(cb.value));
+
+            if(!desc || isNaN(amount) || amount <= 0) return showToast("請填寫正確金額與消費項目喔！");
+            if(splitters.length === 0) return showToast("請至少選擇一位要一起分攤的人！");
+
+            const expenseObj = { payer, desc, currency, amount, splitters, timestamp: Date.now() };
+
+            if (isConnected) await addDoc(expensesRef, expenseObj);
+            else if (window.mockMode) {
+                expenseObj.id = Date.now().toString();
+                window.expensesData.unshift(expenseObj);
+                renderExpenses(); calculateSplit();
+            }
+            document.getElementById('expense-amount').value = '';
+            document.getElementById('expense-desc').value = '';
+            closeExpenseModal();
+            showToast("記帳成功！四人已同步。");
+        };
+
+        window.deleteExpense = async (id) => {
+            if (isConnected) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'expenses', id));
+            else if(window.mockMode) { window.expensesData = window.expensesData.filter(item => item.id !== id); renderExpenses(); calculateSplit(); }
+            showToast("紀錄已刪除。");
+        };
+
+        function renderExpenses() {
+            const list = document.getElementById('expense-list');
+            if(!window.expensesData || window.expensesData.length === 0) { list.innerHTML = '<div class="text-center text-sm text-latte py-4">目前無花費紀錄</div>'; return; }
+            
+            let html = '';
+            window.expensesData.forEach(item => {
+                const date = new Date(item.timestamp).toLocaleDateString('zh-TW', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                html += `
+                <div class="bg-white p-4 rounded-xl border border-dashed border-borderCream flex justify-between items-center relative shadow-sm">
+                    <div class="flex-1">
+                        <div class="font-bold text-coffee text-base">${item.desc}</div>
+                        <div class="text-sm text-latte mt-1"><span class="font-bold text-coffee">${item.payer}</span> 先付 · 分攤: ${item.splitters.join(', ')}</div>
+                        <div class="text-xs text-borderCream mt-1">${date}</div>
+                    </div>
+                    <div class="text-right ml-3">
+                        <div class="font-bold text-lg ${item.currency === 'THB' ? 'text-matcha' : 'text-peach'}">${item.currency} ${item.amount}</div>
+                        <button onclick="deleteExpense('${item.id}')" class="text-xs text-red-400 hover:text-red-600 mt-2 font-bold"><i class="fa-solid fa-trash-can"></i> 刪除</button>
+                    </div>
+                </div>`;
+            });
+            list.innerHTML = html;
+        }
+
+        function calculateSplit() {
+            if(!window.expensesData) return;
+            let balances = { THB: { '世哲': 0, '雅茹': 0, '浩宇': 0, '詠心': 0 }, TWD: { '世哲': 0, '雅茹': 0, '浩宇': 0, '詠心': 0 } };
+
+            window.expensesData.forEach(expense => {
+                const amountPerPerson = expense.amount / expense.splitters.length;
+                balances[expense.currency][expense.payer] += expense.amount; 
+                expense.splitters.forEach(person => balances[expense.currency][person] -= amountPerPerson);
+            });
+
+            const resDiv = document.getElementById('split-result');
+            let resultHTML = '';
+
+            ['TWD', 'THB'].forEach(cur => {
+                const currencySymbol = cur === 'TWD' ? 'NT$' : '฿';
+                const curColor = cur === 'TWD' ? 'text-peach' : 'text-matcha';
+                
+                let debtors = [], creditors = [];
+                Object.keys(balances[cur]).forEach(person => {
+                    let bal = Math.round(balances[cur][person]);
+                    if(bal < 0) debtors.push({person, amount: -bal});
+                    else if(bal > 0) creditors.push({person, amount: bal});
+                });
+
+                let settlements = [];
+                while(debtors.length > 0 && creditors.length > 0) {
+                    debtors.sort((a,b) => b.amount - a.amount); creditors.sort((a,b) => b.amount - a.amount);
+                    let d = debtors[0], c = creditors[0], settled = Math.min(d.amount, c.amount);
+                    if (settled > 0) settlements.push(`<div class="flex justify-between items-center bg-oatmeal/50 p-3 rounded-lg my-2 text-base"><span class="font-bold text-coffee">${d.person} <i class="fa-solid fa-arrow-right text-latte text-xs mx-2"></i> ${c.person}</span><span class="font-bold text-lg ${curColor}">${currencySymbol}${settled}</span></div>`);
+                    d.amount -= settled; c.amount -= settled;
+                    if(d.amount === 0) debtors.shift(); if(c.amount === 0) creditors.shift();
+                }
+                if(settlements.length > 0) resultHTML += `<div class="mb-4"><div class="text-sm font-bold text-latte mb-2"><i class="fa-solid fa-coins"></i> ${cur} 結算清單</div>${settlements.join('')}</div>`;
+            });
+
+            resDiv.innerHTML = resultHTML === '' ? '<div class="text-center text-base font-bold text-coffee py-6 bg-oatmeal/30 rounded-xl">帳目結清，無人欠款！🎉</div>' : resultHTML;
+        }
+
+        window.translateToThai = async () => {
+            const input = document.getElementById('trans-input').value.trim();
+            const outputText = document.getElementById('trans-result-text');
+            if(!input) return showToast("請輸入要翻譯的中文！");
+            
+            document.getElementById('trans-output').classList.remove('hidden');
+            outputText.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在請 AI 翻譯中...';
+            try {
+                // 模擬翻譯 (因為直接打 API 可能有 CORS 或 Key 的問題，這裡做真實情境的提示)
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: `請將以下中文翻譯成泰文日常用語，附上羅馬拼音。格式：「泰文：[泰文]\\n拼音：[拼音]」。中文：${input}` }] }] })
+                });
+                const result = await response.json();
+                if(result.candidates) {
+                    outputText.innerHTML = result.candidates[0].content.parts[0].text.replace(/\n/g, '<br>');
+                } else {
+                     outputText.innerHTML = "翻譯功能需要 API Key，請參考下方實體字卡。";
+                }
+            } catch(e) { 
+                outputText.innerHTML = '翻譯連線錯誤，建議直接使用下方的常用字卡給店家看喔！'; 
+            }
+        };
+        
+        window.addEventListener('DOMContentLoaded', () => { setTimeout(updateTimeline, 800); });
+    </script>
+</head>
+<body class="pb-28 text-[15px]">
+    <header class="sticky top-0 z-40 bg-cream/95 backdrop-blur-md px-5 py-4 flex justify-between items-center shadow-sm border-b border-borderCream/30">
+        <h1 class="text-2xl font-bold text-coffee flex items-center gap-2"><i class="fa-solid fa-plane-departure text-matcha"></i> 泰國鬆弛之旅</h1>
+        <div id="sync-status" class="text-xs font-bold text-latte flex items-center gap-1 bg-oatmeal px-3 py-1.5 rounded-full"><i class="fa-solid fa-spinner fa-spin"></i></div>
+    </header>
+
+    <main id="app-content" class="px-4 py-6 w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto transition-all duration-300">
+        
+        <section id="tab-itinerary" class="tab-content block space-y-6">
+            
+            <div class="ins-card p-6 space-y-5">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 flex items-center gap-2"><i class="fa-solid fa-plane text-latte"></i> 航班與房號備忘錄</h2>
+                <p class="text-[15px] text-latte leading-relaxed">📌 【導遊提醒】填入境卡或叫 Grab 接機都會用到航班號碼，先填好四人同步，不用再翻 Email！</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="bg-oatmeal p-4 rounded-xl border border-dashed border-borderCream">
+                        <label class="text-sm font-bold text-latte block mb-2">雅茹 & 世哲 航班</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="flight-a" placeholder="例: JX741" class="w-full bg-transparent border-b border-coffee/30 outline-none text-coffee font-bold text-lg pb-1" onchange="saveSetting('flightA', this.value)">
+                            <button onclick="checkFlight('flight-a')" class="text-sm bg-matcha text-white px-4 py-2 rounded-lg shadow-sm whitespace-nowrap font-bold"><i class="fa-solid fa-magnifying-glass"></i> 動態</button>
+                        </div>
+                    </div>
+                    <div class="bg-oatmeal p-4 rounded-xl border border-dashed border-borderCream">
+                        <label class="text-sm font-bold text-latte block mb-2">詠心 & 浩宇 航班</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="flight-b" placeholder="例: CI833" class="w-full bg-transparent border-b border-coffee/30 outline-none text-coffee font-bold text-lg pb-1" onchange="saveSetting('flightB', this.value)">
+                            <button onclick="checkFlight('flight-b')" class="text-sm bg-matcha text-white px-4 py-2 rounded-lg shadow-sm whitespace-nowrap font-bold"><i class="fa-solid fa-magnifying-glass"></i> 動態</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="space-y-3 mt-4">
+                    <div class="flex items-center gap-3 bg-oatmeal p-3 rounded-xl border border-dashed border-borderCream">
+                        <div class="w-24 text-sm font-bold text-latte"><i class="fa-solid fa-key text-peach"></i> GO Hotel</div>
+                        <div class="flex-1 flex gap-2">
+                            <input type="text" id="room-go-a" placeholder="雅茹&世哲" class="w-full text-base bg-white p-2 rounded-lg outline-none font-bold text-coffee text-center shadow-sm" onchange="saveSetting('roomGoA', this.value)">
+                            <input type="text" id="room-go-b" placeholder="詠心&浩宇" class="w-full text-base bg-white p-2 rounded-lg outline-none font-bold text-coffee text-center shadow-sm" onchange="saveSetting('roomGoB', this.value)">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 bg-oatmeal p-3 rounded-xl border border-dashed border-borderCream">
+                        <div class="w-24 text-sm font-bold text-latte"><i class="fa-solid fa-key text-peach"></i> Ana Anan</div>
+                        <div class="flex-1 flex gap-2">
+                            <input type="text" id="room-ana-a" placeholder="雅茹&世哲" class="w-full text-base bg-white p-2 rounded-lg outline-none font-bold text-coffee text-center shadow-sm" onchange="saveSetting('roomAnaA', this.value)">
+                            <input type="text" id="room-ana-b" placeholder="詠心&浩宇" class="w-full text-base bg-white p-2 rounded-lg outline-none font-bold text-coffee text-center shadow-sm" onchange="saveSetting('roomAnaB', this.value)">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 bg-oatmeal p-3 rounded-xl border border-dashed border-borderCream">
+                        <div class="w-24 text-sm font-bold text-latte"><i class="fa-solid fa-key text-peach"></i> Montien</div>
+                        <div class="flex-1 flex gap-2">
+                            <input type="text" id="room-montien-a" placeholder="雅茹&世哲" class="w-full text-base bg-white p-2 rounded-lg outline-none font-bold text-coffee text-center shadow-sm" onchange="saveSetting('roomMontienA', this.value)">
+                            <input type="text" id="room-montien-b" placeholder="詠心&浩宇" class="w-full text-base bg-white p-2 rounded-lg outline-none font-bold text-coffee text-center shadow-sm" onchange="saveSetting('roomMontienB', this.value)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-6">
+                <!-- Day 1 -->
+                <details class="ins-card group day-container" data-start-time="23:40" open>
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 1</span> 12/19(六) 曼谷抵達</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d1-1" data-type="travel" data-duration="60" data-travel="30">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">機場通關 ➔ 搭車赴飯店</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-taxi"></i> 1樓 Gate 4 叫 Grab (車程約30分)</span>
+                                <a href="https://maps.google.com/?q=Suvarnabhumi+Airport" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">💡 【導遊提醒】入境通常要排隊 30-45 分鐘。拿完行李直奔 1 樓找 Gate 4，叫 Grab 時定位選這裡最準，並把柱子號碼拍照傳給司機，才不會找不到車！</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d1-2" data-type="checkin" data-fixed-time="01:10">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">入住 GO Hotel 休息</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <a href="https://maps.google.com/?q=GO+Hotel+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 飯店導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">💡 【宵夜指南】已經幫你們備註 Late Check-in。如果肚子餓，飯店旁邊就有 7-11，必買「打拋豬微波盒飯」跟「熱壓吐司（結帳時店員會幫忙加熱壓烤）」，隨便買都無雷好吃！</p>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Day 2 -->
+                <details class="ins-card group day-container" data-start-time="10:00">
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 2</span> 12/20(日) 滿血進攻芭達雅</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d2-1" data-type="stay" data-duration="45" data-travel="0">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-money-bill-transfer text-latte"></i> 飯店旁商場換匯</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-person-walking"></i> 步行約 5 分鐘</span>
+                                <a href="https://maps.google.com/?q=Superrich+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 找換匯所</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">💡 【導遊提醒】請找橘色招牌 Superrich (通常在百貨 B1 或 G 樓)。**請嚴格檢查四個人都有帶實體護照**才能換！建議每人先換 5000-8000 泰銖現金即可，泰國百貨刷卡很方便。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d2-2" data-type="travel" data-duration="135" data-travel="0">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-van-shuttle text-latte"></i> 預約包車直奔芭達雅</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-van-shuttle"></i> 專屬包車 (車程約 2.5 小時)</span>
+                            </div>
+                            <p class="text-[15px] text-latte leading-relaxed mt-2">上車直接補眠，司機會帶你們直奔芭達雅海鮮名店。</p>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d2-3" data-type="stay" data-duration="90" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-utensils text-peach"></i> 午餐：Pupen Seafood 巨蟹海鮮</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-van-shuttle"></i> 包車直接停門口</span>
+                                <a href="https://maps.google.com/?q=Pupen+Seafood+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 餐廳導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🍽️ 【芭達雅必吃名店】門口有一隻超大螃蟹雕像！**必點：咖哩炒蟹（超下飯）、泰式生蝦（沾海鮮醬超爽）、烤大頭蝦、冬蔭功海鮮湯**。吃完叫 Bolt 前往飯店。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d2-4" data-type="checkin" data-fixed-time="14:45" data-duration="60" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">Ana Anan Check-in & 耍廢</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 15 分)</span>
+                                <a href="https://maps.google.com/?q=Ana+Anan+Resort+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 飯店導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">📸 換泳裝去「雙層無邊際泳池」狂拍美照！這裡隨便拍都有海島大片感，傍晚可以留意飯店酒吧有沒有 Happy Hour 買一送一。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-peach/10 p-5 rounded-r-xl border border-dashed border-peach" id="d2-5" data-type="stay" data-duration="75" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-spa text-peach"></i> 飯店周邊優質泰式按摩</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-person-walking"></i> 步行或搭 Bolt (約 5-10 分)</span>
+                                <a href="https://maps.google.com/?q=Massage+near+Ana+Anan+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 搜尋附近按摩</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-peach/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">💆 【導遊推薦】Ana Anan 所在的 Na Jomtien 區有許多優質小店。建議隨便挑一家 Google 評價 4.3 顆星以上的，做個 1 小時的「泰式全身按摩 (Thai Massage)」，把搭飛機跟坐車的疲勞全部啪啪啪按掉！</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d2-6" data-type="stay" data-duration="120" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-martini-glass text-peach"></i> 晚餐：Cave Beach Club 洞穴海灘</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 15 分)</span>
+                                <a href="https://maps.google.com/?q=Cave+Beach+Club+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 餐廳導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🍷 波西米亞風的海景餐廳，晚上點燈後超級浪漫、氣氛滿分！記得提早請飯店幫忙叫車，回程也比較難叫車，可以直接請餐廳櫃台幫忙叫。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-matcha/10 p-5 rounded-r-xl border border-dashed border-matcha" id="d2-7" data-type="stay" data-duration="60" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-leaf text-matcha"></i> 睡前放鬆：High Society Cannabis</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt 回飯店周邊 (約 10 分)</span>
+                                <a href="https://maps.google.com/?q=High+Society+Cannabis+Club+Pattaya" target="_blank" class="bg-white border border-matcha px-2 py-1 rounded-md text-xs font-bold text-matcha shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-matcha/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">🌿 【安全時段】吃完晚餐過來。這間提供極具質感的 Lounge 空間，初學者請向店員表明「First Time」，抽完微醺搭短程車回飯店直接秒睡！</p>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Day 3 -->
+                <details class="ins-card group day-container" data-start-time="09:40">
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 3</span> 12/21(一) 芭達雅精華與微醺日</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d3-0" data-type="meetup" data-duration="0" data-travel="40">
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">飯店大廳集合 ➔ 出發真理寺</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 40 分)</span>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d3-1" data-type="stay" data-duration="120" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">真理寺參觀</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <a href="https://maps.google.com/?q=Sanctuary+of+Truth+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 景點導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">⚠️ 【服裝嚴格規定】全木造無釘子的神殿！男女皆不可露肩、不可穿短褲短裙過膝上（門口可租借沙龍）。<br>📸 【必拍點】從外圍木棧道平台由上往下拍全景最震撼，內部木雕也極度精緻。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d3-2" data-type="stay" data-duration="150" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-bag-shopping"></i> Terminal 21 午餐與放風</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 15 分)</span>
+                                <a href="https://maps.google.com/?q=Terminal+21+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 百貨導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🍽️ 【省錢必吃】直奔 3F 的「Pier 21 美食街」，先去櫃檯儲值卡片，裡面的小吃(泰式炒河粉、芒果糯米飯) 便宜到哭又衛生！<br>📸 每層樓都是不同國家造景(巴黎鐵塔、東京鳥居)，非常好拍。集合建議約在 G 樓巴黎鐵塔下。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-peach/10 p-5 rounded-r-xl border border-dashed border-peach" id="d3-3" data-type="stay" data-duration="75" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-spa text-peach"></i> Lek Massage Pattaya 腳底按摩</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (約 15 分)</span>
+                                <a href="https://maps.google.com/?q=Lek+Massage+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 按摩導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-peach/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">💆 逛完百貨腿一定超酸！這是一間超級正派、評價極高的平價連鎖按摩店。按個 1 小時的腳底按摩 (Foot Massage)，價格通常在 300 泰銖上下，CP值爆表！</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d3-4" data-type="stay" data-duration="60" data-travel="20">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">芭達雅步行街 (Walking Street)</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 10 分)</span>
+                                <a href="https://maps.google.com/?q=Walking+Street+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 街口導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">白天跟晚上的氛圍完全不同。下午來可以拍到寧靜的海港風景與獨特的招牌街景，走到底就能看到芭達雅的經典地標 Pattaya City 招牌！</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d3-5" data-type="fixed" data-fixed-time="17:00" data-duration="120" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-martini-glass-citrus text-peach"></i> Glass House 夕陽海景晚餐</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 20 分)</span>
+                                <a href="https://maps.google.com/?q=The+Glass+House+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 餐廳導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🍷 芭達雅最美夕陽餐廳！強烈建議預約時指定「Seaside 沙灘區」，吹著海風吃精緻泰菜，享受超美的火燒雲晚霞。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-matcha/10 p-5 rounded-r-xl border border-dashed border-matcha" id="d3-6" data-type="stay" data-duration="60" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-leaf text-matcha"></i> 睡前放鬆：Exotics Pattaya Lounge</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 15 分)</span>
+                                <a href="https://maps.google.com/?q=Exotics+Pattaya+Lounge" target="_blank" class="bg-white border border-matcha px-2 py-1 rounded-md text-xs font-bold text-matcha shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-matcha/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">🌿 評價超高的高級 Lounge，環境舒適甚至還有 PS5 可以玩。行程跑了一整天，晚餐後過來抽個微醺，回飯店洗澡睡覺超級爽！</p>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Day 4 (有 A/B 方案切換) -->
+                <details class="ins-card group day-container" data-start-time="10:30">
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 4</span> 12/22(二) 網美抉擇與 SPA 日</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d4-0" data-type="meetup" data-duration="0" data-travel="15">
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">自然醒 ➔ 飯店大廳集合出發</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 15 分)</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 互動式 A/B 方案切換區塊 -->
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-oatmeal/40 p-5 rounded-r-xl" id="d4-1" data-type="stay" data-duration="120" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg mt-1 mb-3"><i class="fa-solid fa-camera-retro text-latte"></i> 網美行程抉擇 (請在車上討論)</div>
+                            
+                            <!-- 切換器 -->
+                            <select class="w-full bg-white border-2 border-borderCream text-coffee text-[15px] font-bold rounded-xl p-3 outline-none shadow-sm mb-4" onchange="toggleOption(this, 'opt-benedict', 'opt-tutu')">
+                                <option value="A">👉 方案 A：House of Benedict (吹冷氣棚拍)</option>
+                                <option value="B">👉 方案 B：Tutu Beach (戶外粉紅沙灘)</option>
+                            </select>
+                            
+                            <!-- 選項 A 內容 -->
+                            <div id="opt-benedict" class="border-l-4 border-latte pl-4">
+                                <a href="https://maps.google.com/?q=House+of+Benedict+Pattaya" target="_blank" class="mb-2 inline-block bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航 House of Benedict</a>
+                                <p class="text-[15px] text-coffee leading-relaxed font-bold">適合不想流汗的你們！</p>
+                                <p class="text-[15px] text-latte leading-relaxed mt-1">冷氣極強的超浮誇網美攝影棚。門票約 200 THB，每個角落都超好拍（有復古風、旋轉木馬等造景），裡面有賣咖啡跟小點心。</p>
+                            </div>
+                            <!-- 選項 B 內容 -->
+                            <div id="opt-tutu" class="border-l-4 border-peach pl-4 hidden">
+                                <a href="https://maps.google.com/?q=Tutu+Beach+Pattaya" target="_blank" class="mb-2 inline-block bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航 Tutu Beach</a>
+                                <p class="text-[15px] text-coffee leading-relaxed font-bold">適合想拍海島度假風的你們！</p>
+                                <p class="text-[15px] text-latte leading-relaxed mt-1">IG 上超知名的粉紅沙灘咖啡廳！點杯飲料坐在粉紅懶骨頭上看海，非常 Chill（但白天偏熱，記得擦防曬），拍照超級有渡假感。</p>
+                            </div>
+                        </div>
+                        
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d4-2" data-type="stay" data-duration="90" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-utensils"></i> 午餐：The Oxygen Pattaya</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 15 分)</span>
+                                <a href="https://maps.google.com/?q=The+Oxygen+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 餐廳導航</a>
+                            </div>
+                            <p class="text-[15px] text-latte leading-relaxed mt-2">佔地超大的峇里島風海景餐廳，餐點有水準，每一個座位區都超有網美感。吃飽喝足剛好去泡溫泉！</p>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-peach/10 p-5 rounded-r-xl border border-dashed border-peach" id="d4-3" data-type="stay" data-duration="150" data-travel="20">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-spa text-peach"></i> 頂級水療：Yunomori Onsen</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt (車程約 20 分)</span>
+                                <a href="https://maps.google.com/?q=Yunomori+Onsen+Pattaya" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 溫泉導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-peach/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">🧖‍♀️ 【保證正派高級】結合日式裸湯與泰式按摩！建議先在 KKday 或 Klook 買好套票，環境極度幽靜，泡完溫泉再按個摩，直接上天堂。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d4-4" data-type="stay" data-duration="120" data-travel="10">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">Ana Anan 頂樓酒吧 & 外送晚餐</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Bolt 回飯店 (車程約 15 分)</span>
+                            </div>
+                            <p class="text-[15px] text-latte leading-relaxed mt-2">回到飯店直上頂樓 Over the Moon，享受最無敵高空夕陽調酒！晚上餓了懶得出門，直接在頂樓叫 Grab 外送美食（打拋豬或炸雞）送到大廳吃即可。</p>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-matcha/10 p-5 rounded-r-xl border border-dashed border-matcha" id="d4-5" data-type="stay" data-duration="60" data-travel="10">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-leaf text-matcha"></i> 睡前放鬆：Amber Dispensary</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-person-walking"></i> 步行或搭 Bolt (約 10 分)</span>
+                                <a href="https://maps.google.com/?q=Amber+Dispensary+Pattaya" target="_blank" class="bg-white border border-matcha px-2 py-1 rounded-md text-xs font-bold text-matcha shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-matcha/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">🌿 在 Ana Anan 飯店周邊高質感的店面。喝完高空調酒如果想換個氣氛，睡前散步過來放鬆一下，再走回飯店舒舒服服睡一覺！</p>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Day 5 -->
+                <details class="ins-card group day-container" data-start-time="11:30">
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 5</span> 12/23(三) 曼谷盛宴與米其林宵夜</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d5-0" data-type="meetup" data-duration="0" data-travel="150">
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">大廳集合退房 ➔ 包車返回曼谷</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-van-shuttle"></i> 專屬包車 (車程約 2.5 小時)</span>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d5-2" data-type="checkin" data-fixed-time="14:00" data-duration="45" data-travel="0">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">入住 Montien Hotel (Surawong)</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <a href="https://maps.google.com/?q=Montien+Hotel+Surawong+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 飯店導航</a>
+                            </div>
+                            <p class="text-[15px] text-latte leading-relaxed mt-2">這間老牌五星翻新後超美，位在熱鬧的 Silom 區，放行李稍作休息準備出門。</p>
+                        </div>
+                        
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-peach/10 p-5 rounded-r-xl border border-dashed border-peach" id="d5-3" data-type="stay" data-duration="60" data-travel="30">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-spa text-peach"></i> Siam Relax Thai Massage (飯店旁)</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-person-walking"></i> 步行約 5-10 分鐘</span>
+                                <a href="https://maps.google.com/?q=Siam+Relax+Thai+Massage+Silom" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 按摩導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-peach/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">💆 趁著吃大餐前的空檔，到飯店周邊做個 1 小時的肩頸或腳底按摩，讓坐了兩個半小時車的身體徹底放鬆。這區有很多評價很好的店可以盲選！</p>
+                            </div>
+                        </div>
+
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d5-4" data-type="fixed" data-fixed-time="16:15" data-duration="135" data-travel="30">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">Copper Beyond Buffet (Amarin店)</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-train"></i> 搭 BTS 到 Chit Lom 站 (約20分)</span>
+                                <a href="https://maps.google.com/?q=Copper+Beyond+Buffet+Gaysorn+Amarin" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 餐廳導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🥩 【神級 Buffet】⚠️ 預約 16:45 的場次，**必須提早 15-30 分鐘報到排隊進場**！<br>🍽️ 【必吃清單】澳洲和牛船麵、松露酥皮濃湯、生蠔。<br>📸 1F 是爆紅的 **LV The Place 咖啡廳與展覽**，吃飽可以順便瘋狂拍照。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d5-5" data-type="stay" data-duration="120" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">朱拉隆功夜市 ＆ 必比登小吃</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Grab/嘟嘟車 (車程約 10 分)</span>
+                                <a href="https://maps.google.com/?q=Chula+Soi+5+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 夜市導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🍜 【吃貨戰區】就算在 Copper 吃飽了，也一定要來這感受年輕人的活力！必買「Sweet Time 甜湯」或排隊吃「班蘭葉爆漿吐司」。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-matcha/10 p-5 rounded-r-xl border border-dashed border-matcha" id="d5-6" data-type="stay" data-duration="60" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-leaf text-matcha"></i> 睡前放鬆：Euphoria Cannabis</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Grab 回飯店周邊 (約 10 分)</span>
+                                <a href="https://maps.google.com/?q=Euphoria+Cannabis+Silom" target="_blank" class="bg-white border border-matcha px-2 py-1 rounded-md text-xs font-bold text-matcha shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-matcha/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">🌿 24小時營業，離你們 Montien 飯店超級近。逛完夜市搭車回這區合法放鬆，結束直接走回飯店睡覺，絕對安全！</p>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Day 6 -->
+                <details class="ins-card group day-container" data-start-time="10:00">
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 6</span> 12/24(四) 曼谷文青與掃貨全開</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d6-0" data-type="meetup" data-duration="0" data-travel="20">
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">大廳集合 ➔ 搭 MRT 赴老城區</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-train"></i> 步行至 MRT Samyan 站</span>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d6-1" data-type="stay" data-duration="150" data-travel="30">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug">嵩越路 (Song Wat) 復古漫步</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-train"></i> 搭 MRT 到 Wat Mangkon 站 (約15分)</span>
+                                <a href="https://maps.google.com/?q=Song+Wat+Road+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 街區導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">📸 【必拍推薦】這區是曼谷最新文青聚落！保留了百年老屋，路上很多文創小店與泰服租借，隨便一面牆都非常出片，可以找間咖啡廳坐坐。</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Day 6 互動式 A/B 方案切換區塊 -->
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-oatmeal/40 p-5 rounded-r-xl" id="d6-2" data-type="stay" data-duration="180" data-travel="20">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg mt-1 mb-3"><i class="fa-solid fa-bag-shopping text-latte"></i> 曼谷商場大抉擇 (擇一前往)</div>
+                            
+                            <select class="w-full bg-white border-2 border-borderCream text-coffee text-[15px] font-bold rounded-xl p-3 outline-none shadow-sm mb-4" onchange="toggleOption(this, 'opt-emsphere', 'opt-iconsiam')">
+                                <option value="A">👉 方案 A：EmSphere (最新潮/奶油熊)</option>
+                                <option value="B">👉 方案 B：ICONSIAM (室內水上市場/超浮誇)</option>
+                            </select>
+                            
+                            <div id="opt-emsphere" class="border-l-4 border-latte pl-4">
+                                <div class="flex flex-wrap items-center gap-2 mb-2">
+                                    <span class="bg-white px-2 py-1 rounded-md text-xs font-bold text-latte border border-borderCream"><i class="fa-solid fa-train"></i> 搭 MRT 轉 BTS 到 Phrom Phong</span>
+                                    <a href="https://maps.google.com/?q=EmSphere+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                                </div>
+                                <p class="text-[15px] text-coffee leading-relaxed font-bold">年輕人必逛曼谷最新頂流商場！</p>
+                                <p class="text-[15px] text-latte leading-relaxed mt-1">G 樓有泰國國民巨星 **Butterbear 奶油熊**。午餐直接在這裡「地獄級選擇障礙」的超狂美食街解決，全都是名店！</p>
+                            </div>
+                            <div id="opt-iconsiam" class="border-l-4 border-peach pl-4 hidden">
+                                <div class="flex flex-wrap items-center gap-2 mb-2">
+                                    <span class="bg-white px-2 py-1 rounded-md text-xs font-bold text-latte border border-borderCream"><i class="fa-solid fa-train"></i> 搭乘 BTS 轉金線直達</span>
+                                    <a href="https://maps.google.com/?q=ICONSIAM+Bangkok" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                                </div>
+                                <p class="text-[15px] text-coffee leading-relaxed font-bold">泰國最浮誇、華麗的指標性百貨！</p>
+                                <p class="text-[15px] text-latte leading-relaxed mt-1">一樓直接把整個「水上市場」搬進室內！想吃各種泰國道地小吃、看水舞秀，來這裡準沒錯。</p>
+                            </div>
+                        </div>
+
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d6-3" data-type="stay" data-duration="120" data-travel="30">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-cart-shopping"></i> Big C Rajdamri 旗艦店大採買</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-train"></i> 搭 BTS 到 Chit Lom 站 (約15分)</span>
+                                <a href="https://maps.google.com/?q=Big+C+Supercenter+Rajdamri" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 超市導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🛒 直奔 2F/3F 狂掃伴手禮 (泰式奶茶、海苔、魷魚片、百吉牌Pocky)。<br>⚠️ 【避坑提醒】**買完絕對不要自己提上捷運！**請直接用 Grab 叫大車(XL)把戰利品載回飯店放。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-peach/10 p-5 rounded-r-xl border border-dashed border-peach" id="d6-4" data-type="stay" data-duration="120" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-spa text-peach"></i> 深層古法舒壓：Ruen Nuad Massage</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 搭 Grab 從飯店出發 (約 10 分)</span>
+                                <a href="https://maps.google.com/?q=Ruen+Nuad+Massage+Studio" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 按摩導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-peach/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">💆 隱身在 Convent Road (離你們 Montien 飯店超近) 的傳統木屋，評價極高。走了一整天路，來這裡把全身的疲勞徹底按掉！</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-matcha/10 p-5 rounded-r-xl border border-dashed border-matcha" id="d6-5" data-type="stay" data-duration="60" data-travel="10">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-leaf text-matcha"></i> 睡前放鬆：CANNABIS TWINS</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-person-walking"></i> 步行或搭 Grab (約 5-10 分)</span>
+                                <a href="https://maps.google.com/?q=CANNABIS+TWINS+Dispensary" target="_blank" class="bg-white border border-matcha px-2 py-1 rounded-md text-xs font-bold text-matcha shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-matcha/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">🌿 按摩完全身舒暢，散步過來這間評價極高的 Lounge。抽完直接走回 Montien 飯店，結束在泰國的最後一個夜晚！</p>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Day 7 -->
+                <details class="ins-card group day-container" data-start-time="10:00">
+                    <summary class="p-6 font-bold text-coffee cursor-pointer flex justify-between items-center list-none text-xl">
+                        <span class="flex items-center gap-3"><span class="bg-coffee text-cream px-3 py-1 rounded-lg text-[15px]">Day 7</span> 12/25(五) 米其林雞飯與滿載而歸</span>
+                        <i class="fa-solid fa-chevron-down transition-transform group-open:rotate-180 text-latte"></i>
+                    </summary>
+                    <div class="p-6 pt-0 space-y-7 border-t-2 border-dashed border-borderCream mt-2">
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d7-1" data-type="stay" data-duration="90" data-travel="10">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-utensils"></i> Ruenton 米其林海南雞飯</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-building"></i> 就在飯店一樓</span>
+                                <a href="https://maps.google.com/?q=Ruenton+Montien+Surawong" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 餐廳導航</a>
+                            </div>
+                            <div class="bg-oatmeal/50 p-4 rounded-xl mt-3 border-l-4 border-peach">
+                                <p class="text-[15px] text-coffee leading-relaxed">🍽️ 連年獲得米其林必比登推薦，這家海南雞飯的雞肉超級軟嫩，沾醬也是一絕。吃完剛好回房間收行李退房，把大行李寄放櫃台。</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha bg-peach/10 p-5 rounded-r-xl border border-dashed border-peach" id="d7-2" data-type="stay" data-duration="60" data-travel="15">
+                            <button onclick="toggleHideItem(this)" class="absolute -left-5 top-0 bg-white border border-borderCream w-10 h-10 rounded-full text-latte shadow-sm flex items-center justify-center hover:bg-gray-50 z-10"><i class="fa-regular fa-eye-slash"></i></button>
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug flex items-center gap-2"><i class="fa-solid fa-spa text-peach"></i> Lek Massage 最後的腳底按摩</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-person-walking"></i> 步行約 5 分鐘</span>
+                                <a href="https://maps.google.com/?q=Lek+Massage+Surawong" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 導航</a>
+                            </div>
+                            <div class="bg-white/80 p-4 rounded-xl mt-3 border border-peach/30">
+                                <p class="text-[15px] text-coffee leading-relaxed">💆 趁著去機場前的空檔，走到飯店對面的 Lek Massage (正派連鎖)。按個 1 小時徹底消除這幾天的疲勞，準備搭機！</p>
+                            </div>
+                        </div>
+                        <div class="itinerary-item relative pl-6 border-l-[3px] border-matcha" id="d7-3" data-type="travel" data-duration="60">
+                            <div class="text-[15px] font-bold text-matcha time-display mb-1.5">運算中...</div>
+                            <div class="font-bold text-coffee text-lg leading-snug"><i class="fa-solid fa-plane-departure text-latte"></i> 12:45 準時出發 ➔ 前往 BKK 機場</div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="bg-oatmeal px-2 py-1 rounded-md text-xs font-bold text-latte"><i class="fa-solid fa-car"></i> 叫 Grab 或包車 (車程約 1 小時)</span>
+                                <a href="https://maps.google.com/?q=Suvarnabhumi+Airport" target="_blank" class="bg-white border border-borderCream px-2 py-1 rounded-md text-xs font-bold text-peach shadow-sm"><i class="fa-solid fa-location-dot"></i> 機場導航</a>
+                            </div>
+                            <p class="text-[15px] text-latte leading-relaxed mt-2">⚠️ 曼谷市區到機場務必抓 1 小時車程。13:45 抵達機場最剛好，留足 2 小時退稅與逛免稅店！(請務必再次檢查背包有無遺漏大麻相關物品，絕對不能帶上飛機！)</p>
+                        </div>
+                    </div>
+                </details>
+
+            </div>
+        </section>
+
+        <section id="tab-accounting" class="tab-content hidden space-y-6">
+            
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-calculator text-matcha"></i> 泰銖/台幣 真實即時匯率換算</h2>
+                <div class="flex items-center gap-4">
+                    <div class="flex-1 bg-oatmeal p-4 rounded-xl border border-dashed border-borderCream shadow-inner">
+                        <label class="text-sm font-bold text-latte block mb-2">泰銖 (THB)</label>
+                        <input type="number" id="calc-thb" placeholder="輸入泰銖..." class="w-full bg-transparent border-b-2 border-coffee/30 outline-none text-coffee font-bold text-xl pb-1" oninput="calcExchange('thb')">
+                    </div>
+                    <i class="fa-solid fa-right-left text-latte text-2xl"></i>
+                    <div class="flex-1 bg-oatmeal p-4 rounded-xl border border-dashed border-borderCream shadow-inner">
+                        <label class="text-sm font-bold text-latte block mb-2">台幣 (TWD)</label>
+                        <input type="number" id="calc-twd" placeholder="輸入台幣..." class="w-full bg-transparent border-b-2 border-coffee/30 outline-none text-coffee font-bold text-xl pb-1" oninput="calcExchange('twd')">
+                    </div>
+                </div>
+                <div id="live-rate-display" class="text-sm text-matcha mt-4 text-right font-bold"><i class="fa-solid fa-spinner fa-spin"></i> 取得即時連線匯率中...</div>
+            </div>
+
+            <div class="ins-card p-6">
+                <div class="flex justify-between items-center border-b-2 border-dashed border-borderCream pb-3 mb-5">
+                    <h2 class="text-xl font-bold text-coffee"><i class="fa-solid fa-handshake-angle text-peach"></i> 四人結算清單 (支援雙幣)</h2>
+                    <button onclick="openExpenseModal()" class="bg-coffee text-cream text-[15px] px-6 py-2.5 rounded-full font-bold shadow-md hover:bg-latte transition-transform active:scale-95"><i class="fa-solid fa-plus mr-1"></i> 記一筆</button>
+                </div>
+                <div id="split-result">
+                    <div class="text-center text-base font-bold text-coffee py-5">結算計算中...</div>
+                </div>
+            </div>
+
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-list-ul text-latte"></i> 總花費明細</h2>
+                <div id="expense-list" class="space-y-4">
+                    <div class="text-center text-base font-bold text-coffee py-5">資料載入中...</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-guide" class="tab-content hidden space-y-6">
+            
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-language text-peach"></i> AI 即時泰文翻譯機</h2>
+                <p class="text-[15px] text-latte leading-relaxed mb-4">【導遊功能】輸入想對司機或按摩師說的中文，直接翻給他們看！</p>
+                <div class="flex gap-3">
+                    <input type="text" id="trans-input" placeholder="例如：去 Terminal 21 要多少錢？" class="flex-1 p-3 bg-oatmeal rounded-xl border-2 border-borderCream outline-none font-bold text-[15px] text-coffee shadow-inner">
+                    <button onclick="translateToThai()" class="bg-matcha text-white px-5 rounded-xl text-[15px] font-bold shadow-sm active:scale-95 transition-transform">翻譯</button>
+                </div>
+                <div id="trans-output" class="hidden mt-4 p-5 bg-white border-2 border-dashed border-matcha rounded-xl text-[15px] font-bold text-coffee shadow-sm">
+                    <div id="trans-result-text" class="leading-relaxed"></div>
+                </div>
+            </div>
+
+            <!-- 最強溝通字卡 -->
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-comment-dots text-latte"></i> 最強溝通字卡 (直接拿給泰國人看)</h2>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div class="bg-white border-2 border-peach rounded-xl p-4 shadow-sm active:bg-peach/10">
+                        <div class="text-[15px] font-bold text-coffee mb-2">按摩輕一點</div>
+                        <div class="text-2xl text-peach font-bold">เบาหน่อย</div>
+                        <div class="text-[15px] text-latte mt-1">Bao noi</div>
+                    </div>
+                    <div class="bg-white border-2 border-peach rounded-xl p-4 shadow-sm active:bg-peach/10">
+                        <div class="text-[15px] font-bold text-coffee mb-2">按摩重一點</div>
+                        <div class="text-2xl text-peach font-bold">แรงหน่อย</div>
+                        <div class="text-[15px] text-latte mt-1">Raeng noi</div>
+                    </div>
+                    <div class="bg-white border-2 border-matcha rounded-xl p-4 shadow-sm active:bg-matcha/10">
+                        <div class="text-[15px] font-bold text-coffee mb-2">可以去冰嗎？</div>
+                        <div class="text-2xl text-matcha font-bold">ไม่เอาน้ำแข็ง</div>
+                        <div class="text-[15px] text-latte mt-1">Mai ao nam khaeng</div>
+                    </div>
+                    <div class="bg-white border-2 border-matcha rounded-xl p-4 shadow-sm active:bg-matcha/10">
+                        <div class="text-[15px] font-bold text-coffee mb-2">不要加香菜！</div>
+                        <div class="text-2xl text-matcha font-bold">ไม่ใส่ผักชี</div>
+                        <div class="text-[15px] text-latte mt-1">Mai sai pak chee</div>
+                    </div>
+                    <div class="col-span-2 bg-white border-2 border-coffee rounded-xl p-4 shadow-sm active:bg-coffee/10">
+                        <div class="text-[15px] font-bold text-coffee mb-2">請問可以跳表計費嗎？ (搭計程車必備)</div>
+                        <div class="text-2xl text-coffee font-bold">กดมิเตอร์ได้ไหมครับ/ค่ะ</div>
+                        <div class="text-[15px] text-latte mt-1">God meter dai mai krub/ka</div>
+                    </div>
+                    <div class="col-span-2 bg-white border-2 border-coffee rounded-xl p-4 shadow-sm active:bg-coffee/10">
+                        <div class="text-[15px] font-bold text-coffee mb-2">請問可以用 Apple Pay / 刷卡 嗎？</div>
+                        <div class="text-2xl text-coffee font-bold">จ่ายผ่านบัตรเครดิต/แอปเปิลเพย์ได้ไหม</div>
+                        <div class="text-[15px] text-latte mt-1">Jai pan bat credit / Apple Pay dai mai</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 出國必備 Checklist -->
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-list-check text-latte"></i> 2026 出發前必做 Checklist 🧾</h2>
+                <div class="space-y-5">
+                    <label class="flex items-start gap-4 cursor-pointer">
+                        <input type="checkbox" id="chk-app" class="checklist-cb w-6 h-6 mt-0.5 accent-matcha border-2" onchange="saveChecklist('chk-app', this.checked)">
+                        <div class="text-[15px] font-bold text-coffee flex-1 leading-relaxed">已下載 Grab、Bolt (泰國兩大神級叫車APP) 並綁好信用卡</div>
+                    </label>
+                    <label class="flex items-start gap-4 cursor-pointer">
+                        <input type="checkbox" id="chk-passport" class="checklist-cb w-6 h-6 mt-0.5 accent-matcha border-2" onchange="saveChecklist('chk-passport', this.checked)">
+                        <div class="text-[15px] font-bold text-coffee flex-1 leading-relaxed">護照效期大於半年、已購買 eSIM 網卡</div>
+                    </label>
+                    <label class="flex items-start gap-4 cursor-pointer">
+                        <input type="checkbox" id="chk-money" class="checklist-cb w-6 h-6 mt-0.5 accent-matcha border-2" onchange="saveChecklist('chk-money', this.checked)">
+                        <div class="text-[15px] font-bold text-coffee flex-1 leading-relaxed">備妥等值 10,000 泰銖現金/台幣 (防海關抽查，這是泰國硬性規定)</div>
+                    </label>
+                    <label class="flex items-start gap-4 cursor-pointer">
+                        <input type="checkbox" id="chk-book" class="checklist-cb w-6 h-6 mt-0.5 accent-matcha border-2" onchange="saveChecklist('chk-book', this.checked)">
+                        <div class="text-[15px] font-bold text-coffee flex-1 leading-relaxed">已預約好：芭達雅包車、Yunomori 溫泉、Glass House 座位</div>
+                    </label>
+                    <label class="flex items-start gap-4 cursor-pointer">
+                        <input type="checkbox" id="chk-copper" class="checklist-cb w-6 h-6 mt-0.5 accent-matcha border-2" onchange="saveChecklist('chk-copper', this.checked)">
+                        <div class="text-[15px] font-bold text-coffee flex-1 leading-relaxed">Copper Buffet (Gaysorn Amarin店) 與 Jeh O 媽媽麵已搶位預訂成功</div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 2026 信用卡神卡推薦 -->
+            <div class="ins-card p-6 bg-oatmeal/30">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-regular fa-credit-card text-peach"></i> 2026 海外刷卡神卡推薦</h2>
+                <p class="text-[15px] text-latte leading-relaxed mb-4">泰國百貨、餐廳皆可刷卡 (Apple Pay 也很通)。**海外手續費為 1.5%，請挑選回饋 > 2% 的卡**。</p>
+                <ul class="space-y-3 text-[15px] text-coffee font-bold leading-relaxed">
+                    <li class="bg-white p-4 rounded-xl border border-borderCream shadow-sm">🥇 <span class="text-matcha">國泰 CUBE 卡 (趣旅行)</span>：實體消費無腦 3.3% 小樹點回饋，折抵超好用。</li>
+                    <li class="bg-white p-4 rounded-xl border border-borderCream shadow-sm">🥈 <span class="text-matcha">台新 FlyGo 卡 / 玫瑰 Giving 卡</span>：海外皆有 3% 高回饋，綁定交通與機票也非常划算。</li>
+                    <li class="bg-white p-4 rounded-xl border border-borderCream shadow-sm">🥉 <span class="text-matcha">玉山 Kumamon 卡</span>：一般海外有 2% 基本盤，免年費門檻低。</li>
+                </ul>
+            </div>
+
+            <!-- 交通與避坑 -->
+            <div class="ins-card p-6 bg-oatmeal/30">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-taxi text-latte"></i> 交通與小費避坑指南</h2>
+                <ul class="space-y-5 text-[15px] text-coffee">
+                    <li class="flex items-start gap-4">
+                        <i class="fa-solid fa-car text-peach mt-1 text-xl"></i>
+                        <div><span class="font-bold text-lg">計程車請愛用 Grab / Bolt</span><p class="text-[15px] text-latte leading-relaxed mt-2">路邊攔車常被坑。Grab 較貴但車多且有保險；Bolt 超便宜但司機常不會講英文。記得看車牌號碼上車！</p></div>
+                    </li>
+                    <li class="flex items-start gap-4">
+                        <i class="fa-solid fa-motorcycle text-peach mt-1 text-xl"></i>
+                        <div><span class="font-bold text-lg">嘟嘟車 (TukTuk) 必殺價</span><p class="text-[15px] text-latte leading-relaxed mt-2">觀光客專用。上車前一定要「先講好總價」，開價 300 請從 150 開始喊。僅建議短程體驗。</p></div>
+                    </li>
+                    <li class="flex items-start gap-4">
+                        <i class="fa-solid fa-coins text-peach mt-1 text-xl"></i>
+                        <div><span class="font-bold text-lg">小費文化 (給紙鈔，勿給硬幣)</span><p class="text-[15px] text-latte leading-relaxed mt-2">按摩結束給師傅 50~100 THB；飯店床頭小費每天 20~50 THB。**硬幣在泰國是給乞丐的，給小費絕對只能給 20 泰銖以上的紙鈔！**</p></div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- 12月泰國天氣與在地禮俗 (2026版) -->
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-sun text-peach"></i> 12月天氣與在地禮俗 (2026)</h2>
+                <ul class="space-y-4 text-[15px] text-coffee leading-relaxed">
+                    <li class="flex items-start gap-3">
+                        <i class="fa-solid fa-temperature-half text-latte mt-1"></i>
+                        <div><span class="font-bold">氣候穿搭：</span>12月是泰國「涼季」(約 24~32°C)，是全年最舒服的季節！但百貨公司跟 BTS 捷運冷氣像免錢一樣，<span class="text-peach font-bold">務必隨身帶一件薄外套</span>，以免感冒影響行程。</div>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <i class="fa-solid fa-hands-praying text-latte mt-1"></i>
+                        <div><span class="font-bold">參拜服儀：</span>前往真理寺或神廟，<span class="font-bold text-matcha">嚴禁無袖、露肚臍、短褲短裙 (需過膝蓋)</span>。泰國忌諱用腳指著人或神佛，坐姿要注意。</div>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <i class="fa-solid fa-crown text-latte mt-1"></i>
+                        <div><span class="font-bold">皇室禮俗：</span>泰國人極度敬重皇室，請勿在公共場合議論皇室。如果在商場或車站聽到國歌播放，請跟著當地人一起「立正站好」直到音樂結束喔！</div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- 必買伴手禮清單 -->
+            <div class="ins-card p-6">
+                <h2 class="text-xl font-bold text-coffee border-b-2 border-dashed border-borderCream pb-3 mb-5"><i class="fa-solid fa-bag-shopping text-latte"></i> Big C / 超市必買伴手禮</h2>
+                <div class="flex flex-wrap gap-3 text-[15px] font-bold text-coffee">
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> 手標泰式奶茶包 (紅罐/金罐)</span>
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> Mag Mag 還魂梅</span>
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> Bento 超辣魷魚片</span>
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> 皇家蜂蜜 (條狀包裝)</span>
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> POY-SIAN 八仙薄荷鼻吸劑</span>
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> 小老闆海苔 (泰國限定口味)</span>
+                    <span class="bg-oatmeal px-5 py-2.5 rounded-full border border-borderCream shadow-sm"><i class="fa-solid fa-check text-matcha mr-1"></i> 泰國限定版 Pocky (香蕉/打拋豬)</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <nav class="fixed bottom-0 w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto left-0 right-0 bg-white border-t-2 border-dashed border-borderCream pb-safe shadow-[0_-4px_15px_rgba(0,0,0,0.05)] z-50 transition-all duration-300">
+        <div class="flex justify-around items-center p-2 text-[15px] text-latte font-bold">
+            <button onclick="switchTab('itinerary')" id="nav-itinerary" class="nav-item active flex flex-col items-center gap-1.5 w-1/3 py-3"><i class="fa-regular fa-calendar-check text-2xl"></i><span>完美手帳</span></button>
+            <button onclick="switchTab('accounting')" id="nav-accounting" class="nav-item flex flex-col items-center gap-1.5 w-1/3 py-3"><i class="fa-solid fa-wallet text-2xl"></i><span>分帳/換匯</span></button>
+            <button onclick="switchTab('guide')" id="nav-guide" class="nav-item flex flex-col items-center gap-1.5 w-1/3 py-3"><i class="fa-regular fa-compass text-2xl"></i><span>導遊攻略</span></button>
+        </div>
+    </nav>
+
+    <dialog id="expense-modal" class="p-0 rounded-3xl shadow-2xl w-[95%] max-w-sm m-auto border-2 border-coffee">
+        <div class="bg-cream p-6">
+            <div class="flex justify-between items-center mb-6 border-b-2 border-dashed border-borderCream pb-3">
+                <h3 class="font-bold text-coffee text-xl"><i class="fa-solid fa-pen text-matcha mr-1"></i> 新增花費</h3>
+                <button onclick="closeExpenseModal()" class="text-latte hover:text-coffee transition-colors w-8 h-8 flex justify-center items-center rounded-full bg-oatmeal"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            
+            <div class="space-y-6 text-[15px]">
+                <div>
+                    <label class="text-[15px] font-bold text-latte block mb-2">誰付的錢？(代墊人)</label>
+                    <select id="expense-payer" class="w-full p-3 bg-white rounded-xl border-2 border-borderCream outline-none font-bold text-coffee text-[15px] shadow-sm">
+                        <option value="世哲">世哲</option>
+                        <option value="雅茹">雅茹</option>
+                        <option value="浩宇">浩宇</option>
+                        <option value="詠心">詠心</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="text-[15px] font-bold text-latte block mb-2">這筆錢要跟誰分攤？(多選)</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <label class="relative cursor-pointer">
+                            <input type="checkbox" value="世哲" class="person-checkbox sr-only" checked>
+                            <div class="text-center py-3 px-1 rounded-xl border-2 border-borderCream bg-white text-latte font-bold text-[15px] transition-colors shadow-sm">世哲</div>
+                        </label>
+                        <label class="relative cursor-pointer">
+                            <input type="checkbox" value="雅茹" class="person-checkbox sr-only" checked>
+                            <div class="text-center py-3 px-1 rounded-xl border-2 border-borderCream bg-white text-latte font-bold text-[15px] transition-colors shadow-sm">雅茹</div>
+                        </label>
+                        <label class="relative cursor-pointer">
+                            <input type="checkbox" value="浩宇" class="person-checkbox sr-only" checked>
+                            <div class="text-center py-3 px-1 rounded-xl border-2 border-borderCream bg-white text-latte font-bold text-[15px] transition-colors shadow-sm">浩宇</div>
+                        </label>
+                        <label class="relative cursor-pointer">
+                            <input type="checkbox" value="詠心" class="person-checkbox sr-only" checked>
+                            <div class="text-center py-3 px-1 rounded-xl border-2 border-borderCream bg-white text-latte font-bold text-[15px] transition-colors shadow-sm">詠心</div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-1">
+                        <label class="text-[15px] font-bold text-latte block mb-2">幣別</label>
+                        <div class="flex gap-2 bg-white p-2 rounded-xl border-2 border-borderCream shadow-sm">
+                            <label class="flex-1 text-center cursor-pointer py-1.5"><input type="radio" name="expense-currency" value="THB" checked class="accent-matcha w-4 h-4"> <span class="font-bold text-[15px]">THB</span></label>
+                            <label class="flex-1 text-center cursor-pointer py-1.5"><input type="radio" name="expense-currency" value="TWD" class="accent-matcha w-4 h-4"> <span class="font-bold text-[15px]">TWD</span></label>
+                        </div>
+                    </div>
+                    <div class="flex-[2]">
+                        <label class="text-[15px] font-bold text-latte block mb-2">總金額</label>
+                        <input type="number" id="expense-amount" placeholder="輸入總額..." class="w-full p-3 bg-white rounded-xl border-2 border-borderCream outline-none font-bold text-coffee text-[15px] shadow-sm">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-[15px] font-bold text-latte block mb-2">項目備註</label>
+                    <input type="text" id="expense-desc" placeholder="EX: 媽媽麵晚餐、Grab車資..." class="w-full p-3 bg-white rounded-xl border-2 border-borderCream outline-none font-bold text-coffee text-[15px] shadow-sm">
+                </div>
+
+                <button onclick="submitExpense()" class="ins-btn ins-btn-primary w-full py-4 mt-4 rounded-xl text-[16px] tracking-widest shadow-md">確認記帳 (雲端同步)</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script>
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            document.getElementById(`nav-${tabId}`).classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if(tabId === 'itinerary') updateTimeline(); 
+        }
+    </script>
+</body>
+</html>
