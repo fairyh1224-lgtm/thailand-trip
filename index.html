@@ -58,7 +58,14 @@
 
         // 強制鎖定共用房間 ID，確保四人連線到同一個資料庫
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'thailand-trip-2026-v7'; 
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const firebaseConfig = {
+            apiKey: "AIzaSyBxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            authDomain: "thailand-trip-xxx.firebaseapp.com",
+            projectId: "thailand-trip-xxx",
+            storageBucket: "thailand-trip-xxx.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef12345"
+        };
         
         let app, db, auth;
         let isConnected = false;
